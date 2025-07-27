@@ -3,15 +3,16 @@ local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local PlaceId = 15502339000 -- Roube um Brainrot
+local PlaceId = 15502339000
 
 local searching = false
 local currentHop = 0
 
--- Lista de placeholders
+-- Lista de NPCs alvo
 local targets = {
     "Garama And Madundung",
     "Nuclearo Dinossauro",
@@ -26,11 +27,31 @@ local targets = {
     "La Vacca Saturno Saturnita"
 }
 
--- Função: verifica se algum dos placeholders está no servidor
-local function foundTarget()
+-- ESP para NPC
+local function createESP(part, name)
+    if part:FindFirstChild("BrainESP") then return end
+
+    local bill = Instance.new("BillboardGui", part)
+    bill.Name = "BrainESP"
+    bill.Size = UDim2.new(0, 100, 0, 40)
+    bill.AlwaysOnTop = true
+    bill.StudsOffset = Vector3.new(0, 3, 0)
+
+    local text = Instance.new("TextLabel", bill)
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.Text = "🧠 " .. name
+    text.TextColor3 = Color3.fromRGB(255, 100, 100)
+    text.Font = Enum.Font.GothamBold
+    text.TextScaled = true
+end
+
+-- Detecta e marca NPCs alvo
+local function findAndMark()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         for _, name in ipairs(targets) do
             if string.lower(obj.Name) == string.lower(name) then
+                createESP(obj, name)
                 return true
             end
         end
@@ -38,30 +59,7 @@ local function foundTarget()
     return false
 end
 
--- Função: faz o server hop
-local function hopServer(statusLabel)
-    local success, result = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet(
-            "https://games.roblox.com/v1/games/"..PlaceId.."/servers/Public?sortOrder=Asc&limit=100"
-        ))
-    end)
-
-    if success and result and result.data then
-        for _, server in ipairs(result.data) do
-            if server.playing < server.maxPlayers and server.id ~= game.JobId then
-                currentHop += 1
-                statusLabel.Text = "Joining server "..currentHop.."/100 (ID: "..string.sub(server.id, 1, 5).."...)"
-                TeleportService:TeleportToPlaceInstance(PlaceId, server.id, player)
-                return
-            end
-        end
-        statusLabel.Text = "No more servers available."
-    else
-        statusLabel.Text = "Failed to get servers."
-    end
-end
-
--- Criação da GUI
+-- GUI
 local gui = Instance.new("ScreenGui", playerGui)
 gui.Name = "NPC_Hunter_GUI"
 gui.ResetOnSpawn = false
@@ -110,33 +108,75 @@ boostBtn.Font = Enum.Font.GothamBold
 boostBtn.TextSize = 20
 boostBtn.AutoButtonColor = false
 
-local resumeBtn = Instance.new("TextButton", main)
-resumeBtn.Text = "RESUME Hopping"
-resumeBtn.Size = UDim2.new(1, 0, 0, 40)
-resumeBtn.Position = UDim2.new(0, 0, 0, 180)
-resumeBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-resumeBtn.TextColor3 = Color3.new(1, 1, 1)
-resumeBtn.Font = Enum.Font.GothamBold
-resumeBtn.TextSize = 20
+local serverhopBtn = Instance.new("TextButton", main)
+serverhopBtn.Text = "RESUME Hopping"
+serverhopBtn.Size = UDim2.new(1, 0, 0, 40)
+serverhopBtn.Position = UDim2.new(0, 0, 0, 180)
+serverhopBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+serverhopBtn.TextColor3 = Color3.new(1, 1, 1)
+serverhopBtn.Font = Enum.Font.GothamBold
+serverhopBtn.TextSize = 20
 
--- Clique no botão "RESUME"
-resumeBtn.MouseButton1Click:Connect(function()
+-- HOPPING System (usando seu código)
+local function serverHop()
+    local originalText = serverhopBtn.Text
+    serverhopBtn.Text = "🔄 SEARCHING..."
+    serverhopBtn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+
+    local function getServers()
+        local servers = {}
+        local success, result = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+        end)
+        if success and result and result.data then
+            for _, server in ipairs(result.data) do
+                if server.playing and type(server.playing) == "number" and server.id ~= game.JobId then
+                    table.insert(servers, server.id)
+                end
+            end
+        end
+        return servers
+    end
+
+    local function tryTeleport(servers)
+        if #servers > 0 then
+            serverhopBtn.Text = "🔄 JOINING..."
+            serverhopBtn.BackgroundColor3 = Color3.fromRGB(0, 255, 127)
+            TeleportService:TeleportToPlaceInstance(PlaceId, servers[math.random(1, #servers)])
+        else
+            task.wait(1)
+            servers = getServers()
+            tryTeleport(servers)
+        end
+    end
+
+    local servers = getServers()
+    tryTeleport(servers)
+
+    task.delay(5, function()
+        if serverhopBtn then
+            serverhopBtn.Text = originalText
+            serverhopBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+        end
+    end)
+end
+
+-- Ao clicar em "RESUME Hopping"
+serverhopBtn.MouseButton1Click:Connect(function()
     if searching then return end
     searching = true
-    currentHop = 0
-
+    statusText.Text = "Scanning for NPCs..."
+    
     task.spawn(function()
-        while searching do
-            task.wait(6)
-            statusText.Text = "Scanning for NPCs..."
-            if foundTarget() then
-                statusText.Text = "✅ Placeholder encontrado!"
-                searching = false
-                break
-            else
-                hopServer(statusText)
-                break -- deixa o próximo servidor continuar
-            end
+        task.wait(6)
+        if findAndMark() then
+            statusText.Text = "✅ Placeholder encontrado!"
+            serverhopBtn.Text = "FOUND!"
+            serverhopBtn.BackgroundColor3 = Color3.fromRGB(0, 255, 127)
+            searching = false
+        else
+            statusText.Text = "🔄 NPC não encontrado, trocando..."
+            serverHop()
         end
     end)
 end)
